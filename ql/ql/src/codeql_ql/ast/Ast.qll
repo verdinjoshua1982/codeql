@@ -1287,10 +1287,7 @@ class Quantifier extends TQuantifier, Formula {
   }
 
   /** Gets the ith variable declaration of this quantifier. */
-  VarDecl getArgument(int i) {
-    i >= 1 and
-    toQL(result) = quant.getChild(i - 1)
-  }
+  VarDecl getArgument(int i) { toQL(result) = quant.getChild(i + 1) }
 
   /** Gets an argument of this quantifier. */
   VarDecl getAnArgument() { result = this.getArgument(_) }
@@ -1659,6 +1656,15 @@ class FullAggregate extends TFullAggregate, Aggregate {
     or
     pred = directMember("getRange") and result = this.getRange()
   }
+}
+
+/**
+ * A "any" expression, such as `any(int i | i > 0).toString()`.
+ */
+class Any extends FullAggregate {
+  Any() { this.getKind() = "any" }
+
+  override string getAPrimaryQlClass() { result = "Any" }
 }
 
 /**
