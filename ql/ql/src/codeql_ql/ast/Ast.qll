@@ -64,6 +64,14 @@ class AstNode extends TAstNode {
   }
 
   /**
+   * Gets any child of this node. 
+   * This is a convenience method for getting the first child of this node.
+   */
+  AstNode getAChild() {
+    result = getAChild(_)
+  }
+
+  /**
    * Gets the primary QL class for the ast node.
    */
   string getAPrimaryQlClass() { result = "???" }
