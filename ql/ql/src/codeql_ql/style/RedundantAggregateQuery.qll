@@ -39,6 +39,8 @@ predicate redundatAggregate(AstNode aggr, AstNode formula, VarDecl var, AstNode 
   not getAChildOfAggregateFormula(formula) instanceof Negation and
   not getAChildOfAggregateFormula(formula) instanceof Aggregate and
   not getAChildOfAggregateFormula(formula) instanceof IfFormula and
+  not getAChildOfAggregateFormula(formula) instanceof Forall and
+  not getAChildOfAggregateFormula(formula) instanceof Forex and
   // it's not neccessarily redundant inside noopt.
   not aggr.getEnclosingPredicate().getAnAnnotation() instanceof NoOpt
 }
