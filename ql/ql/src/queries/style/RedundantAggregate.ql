@@ -9,10 +9,10 @@
  */
 
 import ql
-import codeql_ql.style.RedundatAggregateQuery
+import codeql_ql.style.RedundantAggregateQuery
 
 from AstNode aggr, AstNode formula, VarDecl var
-where redundatAggregate(aggr, formula, var)
+where redundantAggregate(aggr, formula, var, _)
 select aggr,
   "The $@ in this aggregate is assigned and used exactly once, and the aggregate can therefore be simplified away.",
   var, "variable " + var.getName()

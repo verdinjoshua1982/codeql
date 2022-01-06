@@ -25,7 +25,7 @@ private predicate aggregate(AstNode aggr, Formula range, AstNode formula, VarDec
  * Holds if `aggr` is a redundant aggregate.
  * The aggregate declares a single variable `var`, the value of which is `operand`, and it is only used in `formula`.
  */
-predicate redundatAggregate(AstNode aggr, AstNode formula, VarDecl var, AstNode operand) {
+predicate redundantAggregate(AstNode aggr, AstNode formula, VarDecl var, AstNode operand) {
   exists(ComparisonFormula comp |
     aggregate(aggr, comp, formula, var) and
     comp.getOperator() = "=" and
