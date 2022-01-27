@@ -72,8 +72,12 @@ impl Writer {
             writeln!(dest, "{}=@\"{}\"", label, key.replace("\"", "\"\""))?;
         }
         for (name, instances) in &self.tuples {
+            if instances.is_empty() {
+                continue;
+            }
+            write!(dest, "{}", name)?;
             for instance in instances {
-                write!(dest, "{}(", name)?;
+                write!(dest, "(")?;
                 for (index, arg) in instance.iter().enumerate() {
                     if index > 0 {
                         write!(dest, ",")?;
