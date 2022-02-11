@@ -10,6 +10,7 @@ newtype TConstantValue =
   } or
   TString(string s) { any(RequiredConstantValue x).requiredString(s) } or
   TSymbol(string s) { any(RequiredConstantValue x).requiredSymbol(s) } or
+  TRegExp(string s) { any(RequiredConstantValue x).requiredRegExp(s) } or
   TBoolean(boolean b) { b in [false, true] } or
   TNil()
 
@@ -33,4 +34,6 @@ class RequiredConstantValue extends MkRequiredConstantValue {
   predicate requiredString(string s) { none() }
 
   predicate requiredSymbol(string s) { none() }
+
+  predicate requiredRegExp(string s) { none() }
 }

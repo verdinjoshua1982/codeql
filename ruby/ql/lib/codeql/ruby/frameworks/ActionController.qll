@@ -181,7 +181,7 @@ class RedirectToCall extends ActionControllerContextCall {
   /** Gets the `ActionControllerActionMethod` to redirect to, if any */
   ActionControllerActionMethod getRedirectActionMethod() {
     exists(string methodName |
-      this.getKeywordArgument("action").getConstantValue().isStringOrSymbol(methodName) and
+      this.getKeywordArgument("action").getConstantValue().isStringlikeValue(methodName) and
       methodName = result.getName() and
       result.getEnclosingModule() = this.getControllerClass()
     )
@@ -217,7 +217,7 @@ pragma[nomagic]
 private predicate actionControllerHasHelperMethodCall(ActionControllerControllerClass c, string name) {
   exists(MethodCall mc |
     mc.getMethodName() = "helper_method" and
-    mc.getAnArgument().getConstantValue().isStringOrSymbol(name) and
+    mc.getAnArgument().getConstantValue().isStringlikeValue(name) and
     mc.getEnclosingModule() = c
   )
 }
@@ -309,7 +309,7 @@ class ActionControllerSkipForgeryProtectionCall extends CSRFProtectionSetting::R
       call.getMethodName() = "skip_forgery_protection"
       or
       call.getMethodName() = "skip_before_action" and
-      call.getAnArgument().getConstantValue().isStringOrSymbol("verify_authenticity_token")
+      call.getAnArgument().getConstantValue().isStringlikeValue("verify_authenticity_token")
     )
   }
 

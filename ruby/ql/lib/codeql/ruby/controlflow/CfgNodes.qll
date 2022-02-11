@@ -849,7 +849,8 @@ module ExprNodes {
     override predicate requiredString(string s) {
       exists(StringlikeLiteralCfgNode n |
         s = getStringlikeLiteralCfgNodeValue(n) and
-        not n.getExpr() instanceof SymbolLiteral
+        not n.getExpr() instanceof SymbolLiteral and
+        not n.getExpr() instanceof RegExpLiteral
       )
     }
 
@@ -857,6 +858,13 @@ module ExprNodes {
       exists(StringlikeLiteralCfgNode n |
         s = getStringlikeLiteralCfgNodeValue(n) and
         n.getExpr() instanceof SymbolLiteral
+      )
+    }
+
+    override predicate requiredRegExp(string s) {
+      exists(StringlikeLiteralCfgNode n |
+        s = getStringlikeLiteralCfgNodeValue(n) and
+        n.getExpr() instanceof RegExpLiteral
       )
     }
   }
@@ -874,9 +882,15 @@ module ExprNodes {
     StringComponentCfgNode getAComponent() { result = this.getComponent(_) }
 
     final override ConstantValue getConstantValue() {
-      if this.getExpr() instanceof SymbolLiteral
-      then result.isSymbol(getStringlikeLiteralCfgNodeValue(this))
-      else result.isString(getStringlikeLiteralCfgNodeValue(this))
+      exists(StringlikeLiteral l | l = this.getExpr() |
+        l instanceof SymbolLiteral and result.isSymbol(getStringlikeLiteralCfgNodeValue(this))
+        or
+        l instanceof RegExpLiteral and result.isRegExp(getStringlikeLiteralCfgNodeValue(this))
+        or
+        not l instanceof SymbolLiteral and
+        not l instanceof RegExpLiteral and
+        result.isString(getStringlikeLiteralCfgNodeValue(this))
+      )
     }
   }
 
@@ -906,8 +920,8 @@ module ExprNodes {
       )
   }
 
-  private class RequiredRexExpLiteralConstantValue extends RequiredConstantValue {
-    override predicate requiredString(string s) { s = getRegExpLiteralCfgNodeValue(_) }
+  private class RequiredRegExpLiteralConstantValue extends RequiredConstantValue {
+    override predicate requiredRegExp(string s) { s = getRegExpLiteralCfgNodeValue(_) }
   }
 
   /** A control-flow node that wraps a `RegExpLiteral` AST expression. */
@@ -918,8 +932,8 @@ module ExprNodes {
 
     final override RegExpLiteral getExpr() { result = super.getExpr() }
 
-    final override ConstantValue::ConstantStringValue getConstantValue() {
-      result.isString(getRegExpLiteralCfgNodeValue(this))
+    final override ConstantValue::ConstantRegExpValue getConstantValue() {
+      result.isRegExp(getRegExpLiteralCfgNodeValue(this))
     }
   }
 
