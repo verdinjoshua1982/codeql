@@ -5,6 +5,7 @@ private import codeql.ruby.ApiGraphs
 private import codeql.ruby.DataFlow
 private import codeql.ruby.dataflow.FlowSummary
 private import codeql.ruby.dataflow.internal.DataFlowDispatch
+private import codeql.ruby.controlflow.CfgNodes
 
 // TODO: the way we interpret `preservesValue` in this module may not be
 // correct: we assume that if the input string appears intact in the output,
@@ -19,6 +20,22 @@ private import codeql.ruby.dataflow.internal.DataFlowDispatch
  * https://docs.ruby-lang.org/en/3.1/String.html.
  */
 module String {
+  /**
+   * A call to a method that performs a string replacement.
+   */
+  class ReplaceCall extends DataFlow::CallNode {
+    ReplaceCall() { this.getMethodName() = ["sub", "sub!", "gsub", "gsub!"] }
+
+    RegExpLiteral getRegExp() { result = this.getArgument(0).asExpr().getExpr() }
+
+    DataFlow::Node getReplacedString() { result = this.getReceiver() }
+
+    DataFlow::Node getReplacement() {
+      // TODO: include block return values as results
+      result = this.getArgument(1)
+    }
+  }
+
   /**
    * Value-preserving flow from the receiver to the return value.
    */
