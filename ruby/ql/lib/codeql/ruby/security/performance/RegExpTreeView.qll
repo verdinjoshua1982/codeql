@@ -217,6 +217,9 @@ class RegExpTerm extends RegExpParent {
       result = parent.getSuccessor()
     )
   }
+
+  /** Holds if this regular expression term can match the empty string. */
+  predicate matchesEmptyString() { none() }
 }
 
 newtype TRegExpParent =
@@ -268,18 +271,24 @@ class RegExpStar extends InfiniteRepetitionQuantifier {
   RegExpStar() { this.getQualifier().charAt(0) = "*" }
 
   override string getAPrimaryQlClass() { result = "RegExpStar" }
+
+  override predicate matchesEmptyString() { any() }
 }
 
 class RegExpPlus extends InfiniteRepetitionQuantifier {
   RegExpPlus() { this.getQualifier().charAt(0) = "+" }
 
   override string getAPrimaryQlClass() { result = "RegExpPlus" }
+
+  override predicate matchesEmptyString() { this.getAChild().matchesEmptyString() }
 }
 
 class RegExpOpt extends RegExpQuantifier {
   RegExpOpt() { this.getQualifier().charAt(0) = "?" }
 
   override string getAPrimaryQlClass() { result = "RegExpOpt" }
+
+  override predicate matchesEmptyString() { any() }
 }
 
 class RegExpRange extends RegExpQuantifier {
@@ -287,6 +296,8 @@ class RegExpRange extends RegExpQuantifier {
   string lower;
 
   RegExpRange() { re.multiples(part_end, end, lower, upper) }
+
+  override string getAPrimaryQlClass() { result = "RegExpRange" }
 
   string getUpper() { result = upper }
 
@@ -304,7 +315,9 @@ class RegExpRange extends RegExpQuantifier {
   /** Gets the lower bound of the range. */
   int getLowerBound() { result = this.getLower().toInt() }
 
-  override string getAPrimaryQlClass() { result = "RegExpRange" }
+  override predicate matchesEmptyString() {
+    this.getAChild().matchesEmptyString() or this.getLowerBound() = 0
+  }
 }
 
 class RegExpSequence extends RegExpTerm, TRegExpSequence {
@@ -327,6 +340,10 @@ class RegExpSequence extends RegExpTerm, TRegExpSequence {
   }
 
   override string getAPrimaryQlClass() { result = "RegExpSequence" }
+
+  override predicate matchesEmptyString() {
+    forall(RegExpTerm child | child = this.getAChild() | child.matchesEmptyString())
+  }
 }
 
 pragma[nomagic]
@@ -378,6 +395,8 @@ class RegExpAlt extends RegExpTerm, TRegExpAlt {
   }
 
   override string getAPrimaryQlClass() { result = "RegExpAlt" }
+
+  override predicate matchesEmptyString() { this.getAChild().matchesEmptyString() }
 }
 
 class RegExpEscape extends RegExpNormalChar {
@@ -464,6 +483,8 @@ private int toHex(string hex) {
  */
 class RegExpWordBoundary extends RegExpSpecialChar {
   RegExpWordBoundary() { this.getChar() = "\\b" }
+
+  override predicate matchesEmptyString() { none() }
 }
 
 /**
@@ -485,6 +506,8 @@ class RegExpCharacterClassEscape extends RegExpEscape {
   override RegExpTerm getChild(int i) { none() }
 
   override string getAPrimaryQlClass() { result = "RegExpCharacterClassEscape" }
+
+  override predicate matchesEmptyString() { none() }
 }
 
 /**
@@ -535,6 +558,8 @@ class RegExpCharacterClass extends RegExpTerm, TRegExpCharacterClass {
   }
 
   override string getAPrimaryQlClass() { result = "RegExpCharacterClass" }
+
+  override predicate matchesEmptyString() { none() }
 }
 
 class RegExpCharacterRange extends RegExpTerm, TRegExpCharacterRange {
@@ -564,6 +589,8 @@ class RegExpCharacterRange extends RegExpTerm, TRegExpCharacterRange {
   }
 
   override string getAPrimaryQlClass() { result = "RegExpCharacterRange" }
+
+  override predicate matchesEmptyString() { none() }
 }
 
 class RegExpNormalChar extends RegExpTerm, TRegExpNormalChar {
@@ -603,6 +630,8 @@ class RegExpConstant extends RegExpTerm {
   override RegExpTerm getChild(int i) { none() }
 
   override string getAPrimaryQlClass() { result = "RegExpConstant" }
+
+  override predicate matchesEmptyString() { none() }
 }
 
 class RegExpGroup extends RegExpTerm, TRegExpGroup {
@@ -636,6 +665,8 @@ class RegExpGroup extends RegExpTerm, TRegExpGroup {
   }
 
   override string getAPrimaryQlClass() { result = "RegExpGroup" }
+
+  override predicate matchesEmptyString() { this.getAChild().matchesEmptyString() }
 }
 
 class RegExpSpecialChar extends RegExpTerm, TRegExpSpecialChar {
@@ -659,18 +690,24 @@ class RegExpDot extends RegExpSpecialChar {
   RegExpDot() { this.getChar() = "." }
 
   override string getAPrimaryQlClass() { result = "RegExpDot" }
+
+  override predicate matchesEmptyString() { none() }
 }
 
 class RegExpDollar extends RegExpSpecialChar {
   RegExpDollar() { this.getChar() = ["$", "\\Z", "\\z"] }
 
   override string getAPrimaryQlClass() { result = "RegExpDollar" }
+
+  override predicate matchesEmptyString() { any() }
 }
 
 class RegExpCaret extends RegExpSpecialChar {
   RegExpCaret() { this.getChar() = ["^", "\\A"] }
 
   override string getAPrimaryQlClass() { result = "RegExpCaret" }
+
+  override predicate matchesEmptyString() { any() }
 }
 
 class RegExpZeroWidthMatch extends RegExpGroup {
@@ -681,6 +718,8 @@ class RegExpZeroWidthMatch extends RegExpGroup {
   override RegExpTerm getChild(int i) { none() }
 
   override string getAPrimaryQlClass() { result = "RegExpZeroWidthMatch" }
+
+  override predicate matchesEmptyString() { any() }
 }
 
 /**
@@ -706,6 +745,8 @@ class RegExpSubPattern extends RegExpZeroWidthMatch {
       result.getEnd() = in_end
     )
   }
+
+  override predicate matchesEmptyString() { any() }
 }
 
 abstract class RegExpLookahead extends RegExpSubPattern { }
@@ -714,6 +755,8 @@ class RegExpPositiveLookahead extends RegExpLookahead {
   RegExpPositiveLookahead() { re.positiveLookaheadAssertionGroup(start, end) }
 
   override string getAPrimaryQlClass() { result = "RegExpPositiveLookahead" }
+
+  override predicate matchesEmptyString() { any() }
 }
 
 class RegExpNegativeLookahead extends RegExpLookahead {
@@ -761,6 +804,8 @@ class RegExpBackRef extends RegExpTerm, TRegExpBackRef {
   override RegExpTerm getChild(int i) { none() }
 
   override string getAPrimaryQlClass() { result = "RegExpBackRef" }
+
+  override predicate matchesEmptyString() { this.getGroup().matchesEmptyString() }
 }
 
 /**
