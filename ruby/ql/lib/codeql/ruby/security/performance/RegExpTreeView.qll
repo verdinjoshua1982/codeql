@@ -220,6 +220,12 @@ class RegExpTerm extends RegExpParent {
 
   /** Holds if this regular expression term can match the empty string. */
   predicate matchesEmptyString() { none() }
+
+  /** Holds if this regular expression matches `str`. */
+  predicate matches(string s) { none() }
+
+  /** Gets a string matched by this regular expression. */
+  final string getAMatchedString() { this.matches(result) }
 }
 
 newtype TRegExpParent =
@@ -343,6 +349,19 @@ class RegExpSequence extends RegExpTerm, TRegExpSequence {
 
   override predicate matchesEmptyString() {
     forall(RegExpTerm child | child = this.getAChild() | child.matchesEmptyString())
+  }
+
+  // Why can't we use concat(...) with language[monotonicAggregates] here instead?
+  override predicate matches(string s) { this.matchesFromChildAtIndex(s, 0) }
+
+  predicate matchesFromChildAtIndex(string s, int i) {
+    i = this.getNumChild() and s = ""
+    or
+    exists(string substring, string rest |
+      this.getChild(i).matches(substring) and this.matchesFromChildAtIndex(rest, i + 1)
+    |
+      s = substring + rest
+    )
   }
 }
 
@@ -560,6 +579,8 @@ class RegExpCharacterClass extends RegExpTerm, TRegExpCharacterClass {
   override string getAPrimaryQlClass() { result = "RegExpCharacterClass" }
 
   override predicate matchesEmptyString() { none() }
+
+  override predicate matches(string s) { not this.isInverted() and this.getAChild().matches(s) }
 }
 
 class RegExpCharacterRange extends RegExpTerm, TRegExpCharacterRange {
@@ -632,6 +653,8 @@ class RegExpConstant extends RegExpTerm {
   override string getAPrimaryQlClass() { result = "RegExpConstant" }
 
   override predicate matchesEmptyString() { none() }
+
+  override predicate matches(string str) { str = this.getValue() }
 }
 
 class RegExpGroup extends RegExpTerm, TRegExpGroup {
@@ -667,6 +690,8 @@ class RegExpGroup extends RegExpTerm, TRegExpGroup {
   override string getAPrimaryQlClass() { result = "RegExpGroup" }
 
   override predicate matchesEmptyString() { this.getAChild().matchesEmptyString() }
+
+  override predicate matches(string s) { this.getAChild().matches(s) }
 }
 
 class RegExpSpecialChar extends RegExpTerm, TRegExpSpecialChar {
