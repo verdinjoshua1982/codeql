@@ -41,8 +41,7 @@ class DangerousPrefix extends string {
   DangerousPrefix() {
     this = ["/..", "../"] or
     this = "<!--" or
-    this = "<" + ["iframe", "script", "cript", "scrip", "style"] or
-    this = "<%"
+    this = "<" + ["iframe", "script", "cript", "scrip", "style"]
   }
 }
 
@@ -145,10 +144,6 @@ predicate matchesDangerousPrefix(EmptyReplaceRegExpTerm t, string prefix, string
       // the `cript|scrip` case has been observed in the wild several times
       prefix = "<" + ["iframe", "script", "cript", "scrip", "style"]
     )
-    or
-    // ERb
-    kind = "ERb injection" and
-    prefix = "<?"
   )
   or
   kind = "HTML attribute injection" and
