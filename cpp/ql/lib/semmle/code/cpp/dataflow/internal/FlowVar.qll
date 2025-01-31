@@ -1,11 +1,13 @@
 /**
+ * DEPRECATED: Use `semmle.code.cpp.dataflow.new.DataFlow` instead.
+ *
  * Provides a class for handling variables in the data flow analysis.
  */
 
 import cpp
 private import semmle.code.cpp.controlflow.SSA
-private import semmle.code.cpp.dataflow.internal.SubBasicBlocks
-private import semmle.code.cpp.dataflow.internal.AddressFlow
+private import SubBasicBlocks
+private import AddressFlow
 private import semmle.code.cpp.models.implementations.Iterator
 private import semmle.code.cpp.models.interfaces.PointerWrapper
 

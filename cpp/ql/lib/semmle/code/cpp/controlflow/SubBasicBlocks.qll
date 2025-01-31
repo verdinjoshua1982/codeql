@@ -1,6 +1,6 @@
 // NOTE: There are two copies of this file, and they must be kept identical:
 // - semmle/code/cpp/controlflow/SubBasicBlocks.qll
-// - semmle/code/cpp/dataflow/internal/SubBasicBlocks.qll
+// - semmle/code/cpp/dataflow/internal/SubBasicBlocks.qll [now DEPRECATED]
 //
 // The second one is a private copy of the `SubBasicBlocks` library for
 // internal use by the data flow library. Having an extra copy prevents
@@ -74,13 +74,6 @@ class SubBasicBlock extends ControlFlowNodeBase {
       thisIndexInBB = rank[result](int i | i = any(SubBasicBlock n).getIndexInBasicBlock(bb))
     )
   }
-
-  /**
-   * DEPRECATED: use `getRankInBasicBlock` instead. Note that this predicate
-   * returns a 0-based position, while `getRankInBasicBlock` returns a 1-based
-   * position.
-   */
-  deprecated int getPosInBasicBlock(BasicBlock bb) { result = this.getRankInBasicBlock(bb) - 1 }
 
   pragma[noinline]
   private int getIndexInBasicBlock(BasicBlock bb) { this = bb.getNode(result) }

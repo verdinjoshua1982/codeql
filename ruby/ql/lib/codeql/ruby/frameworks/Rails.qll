@@ -29,16 +29,13 @@ private module RenderCallUtils {
     result = getTemplatePathValue(renderCall).regexpCapture("^/?(.*/)?(?:[^/]*?)$", 1)
   }
 
-  // everything after the final slash, or the whole string if there is no slash
-  private string getBaseName(MethodCall renderCall) {
-    result = getTemplatePathValue(renderCall).regexpCapture("^/?(?:.*/)?([^/]*?)$", 1)
-  }
-
   /**
    * Gets the template file to be rendered by this render call, if any.
    */
   ErbFile getTemplateFile(MethodCall renderCall) {
-    result.getTemplateName() = getBaseName(renderCall) and
+    // everything after the final slash, or the whole string if there is no slash
+    result.getTemplateName() =
+      getTemplatePathValue(renderCall).regexpCapture("^/?(?:.*/)?([^/]*?)$", 1) and
     result.getRelativePath().matches("%app/views/" + getSubPath(renderCall) + "%")
   }
 
@@ -52,15 +49,6 @@ private module RenderCallUtils {
  * Provides classes for working with Rails.
  */
 module Rails {
-  /**
-   * DEPRECATED: Any call to `html_safe` is considered an XSS sink.
-   * A method call on a string to mark it as HTML safe for Rails. Strings marked
-   * as such will not be automatically escaped when inserted into HTML.
-   */
-  deprecated class HtmlSafeCall extends MethodCall {
-    HtmlSafeCall() { this.getMethodName() = "html_safe" }
-  }
-
   /** A call to a Rails method to escape HTML. */
   class HtmlEscapeCall extends MethodCall instanceof HtmlEscapeCallImpl { }
 
@@ -230,7 +218,8 @@ private module Settings {
  * production code.
  */
 private class AllowForgeryProtectionSetting extends Settings::BooleanSetting,
-  CsrfProtectionSetting::Range {
+  CsrfProtectionSetting::Range
+{
   AllowForgeryProtectionSetting() {
     this = Config::actionController().getAMethodCall("allow_forgery_protection=")
   }
@@ -244,7 +233,8 @@ private class AllowForgeryProtectionSetting extends Settings::BooleanSetting,
  * https://ruby-doc.org/stdlib-2.7.1/libdoc/openssl/rdoc/OpenSSL/Cipher.html
  */
 private class EncryptedCookieCipherSetting extends Settings::StringlikeSetting,
-  CookieSecurityConfigurationSetting::Range {
+  CookieSecurityConfigurationSetting::Range
+{
   EncryptedCookieCipherSetting() {
     this = Config::actionDispatch().getAMethodCall("encrypted_cookie_cipher=")
   }
@@ -264,7 +254,8 @@ private class EncryptedCookieCipherSetting extends Settings::StringlikeSetting,
  * than the older AES-256-CBC cipher. Defaults to true.
  */
 private class UseAuthenticatedCookieEncryptionSetting extends Settings::BooleanSetting,
-  CookieSecurityConfigurationSetting::Range {
+  CookieSecurityConfigurationSetting::Range
+{
   UseAuthenticatedCookieEncryptionSetting() {
     this = Config::actionDispatch().getAMethodCall("use_authenticated_cookie_encryption=")
   }
@@ -286,7 +277,8 @@ private class UseAuthenticatedCookieEncryptionSetting extends Settings::BooleanS
  * https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie/SameSite#strict
  */
 private class CookiesSameSiteProtectionSetting extends Settings::NillableStringlikeSetting,
-  CookieSecurityConfigurationSetting::Range {
+  CookieSecurityConfigurationSetting::Range
+{
   CookiesSameSiteProtectionSetting() {
     this = Config::actionDispatch().getAMethodCall("cookies_same_site_protection=")
   }
@@ -313,7 +305,7 @@ private predicate isPotentialRenderCall(MethodCall renderCall, Location loc, Erb
 // TODO: initialization hooks, e.g. before_configuration, after_initialize...
 // TODO: initializers
 /** A synthetic global to represent the value passed to the `locals` argument of a render call for a specific ERB file. */
-private class LocalAssignsHashSyntheticGlobal extends SummaryComponent::SyntheticGlobal {
+private class LocalAssignsHashSyntheticGlobal extends string {
   private ErbFile erbFile;
   private string id;
   // Note that we can't use an actual `Rails::RenderCall` here due to problems with non-monotonic recursion
@@ -345,7 +337,7 @@ private class RenderLocalsSummary extends SummarizedCallable {
 
   override Rails::RenderCall getACall() { result = glob.getARenderCall() }
 
-  override predicate propagatesFlowExt(string input, string output, boolean preservesValue) {
+  override predicate propagatesFlow(string input, string output, boolean preservesValue) {
     input = "Argument[locals:]" and
     output = "SyntheticGlobal[" + glob + "]" and
     preservesValue = true
@@ -363,7 +355,7 @@ private class AccessLocalsSummary extends SummarizedCallable {
     result.getMethodName() = "local_assigns"
   }
 
-  override predicate propagatesFlowExt(string input, string output, boolean preservesValue) {
+  override predicate propagatesFlow(string input, string output, boolean preservesValue) {
     input = "SyntheticGlobal[" + glob + "]" and
     output = "ReturnValue" and
     preservesValue = true
@@ -393,9 +385,25 @@ private class AccessLocalsKeySummary extends SummarizedCallable {
     result.getReceiver() instanceof SelfVariableReadAccess
   }
 
-  override predicate propagatesFlowExt(string input, string output, boolean preservesValue) {
+  override predicate propagatesFlow(string input, string output, boolean preservesValue) {
     input = "SyntheticGlobal[" + glob + "].Element[:" + methodName + "]" and
     output = "ReturnValue" and
     preservesValue = true
   }
+}
+
+/** A call to `render inline: foo`, considered as a ERB template rendering. */
+private class RailsTemplateRendering extends TemplateRendering::Range, DataFlow::CallNode {
+  private DataFlow::Node template;
+
+  RailsTemplateRendering() {
+    (
+      this.asExpr().getExpr() instanceof Rails::RenderCall
+      or
+      this.asExpr().getExpr() instanceof Rails::RenderToCall
+    ) and
+    template = this.getKeywordArgument("inline")
+  }
+
+  override DataFlow::Node getTemplate() { result = template }
 }

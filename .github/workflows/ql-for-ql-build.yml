@@ -5,26 +5,26 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-    paths:
-      - "ql/**"
-      - "**.qll"
-      - "**.ql"
-      - "**.dbscheme"
-      - "**/qlpack.yml"
-      - ".github/workflows/ql-for-ql-build.yml"
 
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: read
+  security-events: write
+
 jobs:
   analyze:
+    if: github.repository_owner == 'github'
     runs-on: ubuntu-latest-xl
     steps:
       ### Build the queries ###
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Find codeql
         id: find-codeql
-        uses: github/codeql-action/init@v2
+        uses: github/codeql-action/init@main
         with:
           languages: javascript # does not matter
       - uses: ./.github/actions/os-version
@@ -34,8 +34,10 @@ jobs:
         id: cache-extractor
         uses: actions/cache@v3
         with:
-          path: ql/extractor-pack/
-          key: ${{ runner.os }}-${{ steps.os_version.outputs.version }}-extractor-${{ hashFiles('ql/**/Cargo.lock') }}-${{ hashFiles('ql/**/*.rs') }}
+          path: |
+            ql/extractor-pack/
+            ql/target/release/buramu
+          key: ${{ runner.os }}-${{ steps.os_version.outputs.version }}-extractor-${{ hashFiles('ql/**/Cargo.lock') }}-${{ hashFiles('shared/tree-sitter-extractor') }}-${{ hashFiles('ql/**/*.rs') }}
       - name: Cache cargo
         if: steps.cache-extractor.outputs.cache-hit != 'true'
         uses: actions/cache@v3
@@ -47,31 +49,33 @@ jobs:
           key: ${{ runner.os }}-${{ steps.os_version.outputs.version }}-rust-cargo-${{ hashFiles('ql/**/Cargo.lock') }}
       - name: Release build
         if: steps.cache-extractor.outputs.cache-hit != 'true'
-        run: cd ql; ./scripts/create-extractor-pack.sh       
+        run: cd ql; ./scripts/create-extractor-pack.sh
         env:
-          GH_TOKEN: ${{ github.token }}   
+          GH_TOKEN: ${{ github.token }}
       - name: Cache compilation cache
         id: query-cache
         uses: ./.github/actions/cache-query-compilation
-        with: 
+        with:
           key: run-ql-for-ql
       - name: Make database and analyze
         run: |
-          ${CODEQL} database create -l=ql --search-path ql/extractor-pack ${DB}
+          ./ql/target/release/buramu | tee deprecated.blame # Add a blame file for the extractor to parse.
+          ${CODEQL} database create -l=ql ${DB} --search-path "${{ github.workspace }}"
           ${CODEQL} database analyze -j0 --format=sarif-latest --output=ql-for-ql.sarif ${DB} ql/ql/src/codeql-suites/ql-code-scanning.qls  --compilation-cache "${{ steps.query-cache.outputs.cache-dir }}"
-        env: 
+        env:
           CODEQL: ${{ steps.find-codeql.outputs.codeql-path }}
           DB: ${{ runner.temp }}/DB
           LGTM_INDEX_FILTERS: |
             exclude:ql/ql/test
             exclude:*/ql/lib/upgrades/
+            exclude:java/ql/integration-tests
       - name: Upload sarif to code-scanning
-        uses: github/codeql-action/upload-sarif@v2
+        uses: github/codeql-action/upload-sarif@main
         with:
           sarif_file: ql-for-ql.sarif
           category: ql-for-ql
       - name: Sarif as artifact
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ql-for-ql.sarif
           path: ql-for-ql.sarif
@@ -80,7 +84,7 @@ jobs:
           mkdir split-sarif
           node ./ql/scripts/split-sarif.js ql-for-ql.sarif split-sarif
       - name: Upload langs as artifacts
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: ql-for-ql-langs
           path: split-sarif

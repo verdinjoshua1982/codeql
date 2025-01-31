@@ -6,12 +6,8 @@
  * @tags modelgenerator
  */
 
-import semmle.code.csharp.dataflow.internal.FlowSummaryImpl as FlowSummaryImpl
 import internal.CaptureModels
-import internal.CaptureSummaryFlow
 
-from DataFlowTargetApi api, string noflow
-where
-  noflow = captureNoFlow(api) and
-  not api.(FlowSummaryImpl::Public::SummarizedCallable).isManual()
+from DataFlowSummaryTargetApi api, string noflow
+where noflow = captureNoFlow(api)
 select noflow order by noflow

@@ -5,25 +5,32 @@
 #include <unordered_set>
 #include <queue>
 
+#include <picosha2.h>
 #include <swift/AST/SourceFile.h>
 #include <swift/AST/Builtins.h>
 
 #include "swift/extractor/translators/SwiftVisitor.h"
 #include "swift/extractor/infra/TargetDomains.h"
-#include "swift/extractor/SwiftBuiltinSymbols.h"
 #include "swift/extractor/infra/file/Path.h"
+#include "swift/extractor/infra/SwiftLocationExtractor.h"
+#include "swift/extractor/infra/SwiftBodyEmissionStrategy.h"
+#include "swift/logging/SwiftAssert.h"
 
 using namespace codeql;
 using namespace std::string_literals;
 namespace fs = std::filesystem;
 
+Logger& main_logger::logger() {
+  static Logger ret{"main"};
+  return ret;
+}
+
+using namespace main_logger;
+
 static void ensureDirectory(const char* label, const fs::path& dir) {
   std::error_code ec;
   fs::create_directories(dir, ec);
-  if (ec) {
-    std::cerr << "Cannot create " << label << " directory: " << ec.message() << "\n";
-    std::abort();
-  }
+  CODEQL_ASSERT(!ec, "Cannot create {} directory ({})", label, ec);
 }
 
 static void archiveFile(const SwiftExtractorConfiguration& config, swift::SourceFile& file) {
@@ -34,16 +41,37 @@ static void archiveFile(const SwiftExtractorConfiguration& config, swift::Source
 
   std::error_code ec;
   fs::copy(source, destination, fs::copy_options::overwrite_existing, ec);
-
   if (ec) {
-    std::cerr << "Cannot archive source file " << source << " -> " << destination << ": "
-              << ec.message() << "\n";
+    LOG_INFO(
+        "Cannot archive source file {} -> {}, probably a harmless race with another process ({})",
+        source, destination, ec);
   }
 }
 
-static fs::path getFilename(swift::ModuleDecl& module, swift::SourceFile* primaryFile) {
+static std::string mangledDeclName(const swift::Decl& decl) {
+  // SwiftRecursiveMangler mangled name cannot be used directly as it can be too long for file names
+  // so we build some minimal human readable info for debuggability and append a hash
+  auto ret = decl.getModuleContext()->getRealName().str().str();
+  ret += '/';
+  ret += swift::Decl::getKindName(decl.getKind());
+  ret += '_';
+  if (auto valueDecl = llvm::dyn_cast<swift::ValueDecl>(&decl); valueDecl && valueDecl->hasName()) {
+    ret += valueDecl->getBaseName().userFacingName();
+    ret += '_';
+  }
+  SwiftRecursiveMangler mangler;
+  ret += mangler.mangleDecl(decl).hash();
+  return ret;
+}
+
+static fs::path getFilename(swift::ModuleDecl& module,
+                            swift::SourceFile* primaryFile,
+                            const swift::Decl* lazyDeclaration) {
   if (primaryFile) {
     return resolvePath(primaryFile->getFilename());
+  }
+  if (lazyDeclaration) {
+    return mangledDeclName(*lazyDeclaration);
   }
   // PCM clang module
   if (module.isNonSwiftModule()) {
@@ -70,49 +98,42 @@ static fs::path getFilename(swift::ModuleDecl& module, swift::SourceFile* primar
   return resolvePath(filename);
 }
 
-/* The builtin module is special, as it does not publish any top-level declaration
- * It creates (and caches) declarations on demand when a lookup is carried out
- * (see BuiltinUnit in swift/AST/FileUnit.h for the cache details, and getBuiltinValueDecl in
- * swift/AST/Builtins.h for the creation details)
- * As we want to create the Builtin trap file once and for all so that it works for other
- * extraction runs, rather than collecting what we need we pre-populate the builtin trap with
- * what we expect. This list might need thus to be expanded.
- * Notice, that while swift/AST/Builtins.def has a list of builtin symbols, it does not contain
- * all information required to instantiate builtin variants.
- * Other possible approaches:
- * * create one trap per builtin declaration when encountered
- * * expand the list to all possible builtins (of which there are a lot)
- */
-static void getBuiltinDecls(swift::ModuleDecl& builtinModule,
-                            llvm::SmallVector<swift::Decl*>& decls) {
-  llvm::SmallVector<swift::ValueDecl*> values;
-  for (auto symbol : swiftBuiltins) {
-    builtinModule.lookupValue(builtinModule.getASTContext().getIdentifier(symbol),
-                              swift::NLKind::QualifiedLookup, values);
+static llvm::SmallVector<const swift::Decl*> getTopLevelDecls(swift::ModuleDecl& module,
+                                                              swift::SourceFile* primaryFile,
+                                                              const swift::Decl* lazyDeclaration) {
+  llvm::SmallVector<const swift::Decl*> ret;
+  if (lazyDeclaration) {
+    ret.push_back(lazyDeclaration);
+    return ret;
   }
-  decls.insert(decls.end(), values.begin(), values.end());
+  ret.push_back(&module);
+  llvm::SmallVector<swift::Decl*> topLevelDecls;
+  if (primaryFile) {
+    primaryFile->getTopLevelDecls(topLevelDecls);
+  } else {
+    module.getTopLevelDecls(topLevelDecls);
+  }
+  ret.insert(ret.end(), topLevelDecls.data(), topLevelDecls.data() + topLevelDecls.size());
+  return ret;
 }
 
-static llvm::SmallVector<swift::Decl*> getTopLevelDecls(swift::ModuleDecl& module,
-                                                        swift::SourceFile* primaryFile = nullptr) {
-  llvm::SmallVector<swift::Decl*> ret;
-  ret.push_back(&module);
+static TrapType getTrapType(swift::SourceFile* primaryFile, const swift::Decl* lazyDeclaration) {
   if (primaryFile) {
-    primaryFile->getTopLevelDecls(ret);
-  } else if (module.isBuiltinModule()) {
-    getBuiltinDecls(module, ret);
-  } else {
-    module.getTopLevelDecls(ret);
+    return TrapType::source;
   }
-  return ret;
+  if (lazyDeclaration) {
+    return TrapType::lazy_declaration;
+  }
+  return TrapType::module;
 }
 
 static std::unordered_set<swift::ModuleDecl*> extractDeclarations(
     SwiftExtractorState& state,
     swift::CompilerInstance& compiler,
     swift::ModuleDecl& module,
-    swift::SourceFile* primaryFile = nullptr) {
-  auto filename = getFilename(module, primaryFile);
+    swift::SourceFile* primaryFile,
+    const swift::Decl* lazyDeclaration) {
+  auto filename = getFilename(module, primaryFile, lazyDeclaration);
   if (primaryFile) {
     state.sourceFiles.push_back(filename);
   }
@@ -120,18 +141,21 @@ static std::unordered_set<swift::ModuleDecl*> extractDeclarations(
   // The extractor can be called several times from different processes with
   // the same input file(s). Using `TargetFile` the first process will win, and the following
   // will just skip the work
-  const auto trapType = primaryFile ? TrapType::source : TrapType::module;
+  const auto trapType = getTrapType(primaryFile, lazyDeclaration);
   auto trap = createTargetTrapDomain(state, filename, trapType);
   if (!trap) {
     // another process arrived first, nothing to do for us
+    if (lazyDeclaration) {
+      state.emittedDeclarations.insert(lazyDeclaration);
+    }
     return {};
   }
 
   std::vector<swift::Token> comments;
-  if (primaryFile && primaryFile->getBufferID().hasValue()) {
+  if (primaryFile && primaryFile->getBufferID()) {
     auto& sourceManager = compiler.getSourceMgr();
     auto tokens = swift::tokenize(compiler.getInvocation().getLangOptions(), sourceManager,
-                                  primaryFile->getBufferID().getValue());
+                                  *primaryFile->getBufferID());
     for (auto& token : tokens) {
       if (token.getKind() == swift::tok::comment) {
         comments.push_back(token);
@@ -139,9 +163,16 @@ static std::unordered_set<swift::ModuleDecl*> extractDeclarations(
     }
   }
 
-  SwiftVisitor visitor(compiler.getSourceMgr(), *trap, module, primaryFile);
-  auto topLevelDecls = getTopLevelDecls(module, primaryFile);
+  SwiftLocationExtractor locationExtractor(*trap);
+  locationExtractor.emitFile(primaryFile);
+  SwiftBodyEmissionStrategy bodyEmissionStrategy(module, primaryFile, lazyDeclaration);
+  SwiftVisitor visitor(compiler.getSourceMgr(), state, *trap, locationExtractor,
+                       bodyEmissionStrategy);
+  auto topLevelDecls = getTopLevelDecls(module, primaryFile, lazyDeclaration);
   for (auto decl : topLevelDecls) {
+    if (swift::AvailableAttr::isUnavailable(decl)) {
+      continue;
+    }
     visitor.extract(decl);
   }
   for (auto& comment : comments) {
@@ -153,11 +184,13 @@ static std::unordered_set<swift::ModuleDecl*> extractDeclarations(
 static std::unordered_set<std::string> collectInputFilenames(swift::CompilerInstance& compiler) {
   // The frontend can be called in many different ways.
   // At each invocation we only extract system and builtin modules and any input source files that
-  // have an output associated with them.
+  // are primary inputs, or all of them if there are no primary inputs (whole module optimization)
   std::unordered_set<std::string> sourceFiles;
-  auto inputFiles = compiler.getInvocation().getFrontendOptions().InputsAndOutputs.getAllInputs();
-  for (auto& input : inputFiles) {
-    if (input.getType() == swift::file_types::TY_Swift && !input.outputFilename().empty()) {
+  const auto& inOuts = compiler.getInvocation().getFrontendOptions().InputsAndOutputs;
+  for (auto& input : inOuts.getAllInputs()) {
+    LOG_INFO("> {}", input.getFileName());
+    if (input.getType() == swift::file_types::TY_Swift &&
+        (!inOuts.hasPrimaryInputs() || input.isPrimary())) {
       sourceFiles.insert(input.getFileName());
     }
   }
@@ -193,10 +226,12 @@ void codeql::extractSwiftFiles(SwiftExtractorState& state, swift::CompilerInstan
         continue;
       }
       archiveFile(state.configuration, *sourceFile);
-      encounteredModules = extractDeclarations(state, compiler, *module, sourceFile);
+      encounteredModules =
+          extractDeclarations(state, compiler, *module, sourceFile, /*lazy declaration*/ nullptr);
     }
     if (!isFromSourceFile) {
-      encounteredModules = extractDeclarations(state, compiler, *module);
+      encounteredModules = extractDeclarations(state, compiler, *module, /*source file*/ nullptr,
+                                               /*lazy declaration*/ nullptr);
     }
     for (auto encountered : encounteredModules) {
       if (state.encounteredModules.count(encountered) == 0) {
@@ -204,5 +239,37 @@ void codeql::extractSwiftFiles(SwiftExtractorState& state, swift::CompilerInstan
         state.encounteredModules.insert(encountered);
       }
     }
+  }
+}
+
+static void cleanupPendingDeclarations(SwiftExtractorState& state) {
+  std::vector<const swift::Decl*> worklist(std::begin(state.pendingDeclarations),
+                                           std::end(state.pendingDeclarations));
+  for (auto decl : worklist) {
+    if (state.emittedDeclarations.count(decl)) {
+      state.pendingDeclarations.erase(decl);
+    }
+  }
+}
+
+static void extractLazy(SwiftExtractorState& state, swift::CompilerInstance& compiler) {
+  cleanupPendingDeclarations(state);
+  std::vector<const swift::Decl*> worklist(std::begin(state.pendingDeclarations),
+                                           std::end(state.pendingDeclarations));
+  for (auto pending : worklist) {
+    extractDeclarations(state, compiler, *pending->getModuleContext(), /*source file*/ nullptr,
+                        pending);
+  }
+}
+
+void codeql::extractExtractLazyDeclarations(SwiftExtractorState& state,
+                                            swift::CompilerInstance& compiler) {
+  // Just in case
+  const int upperBound = 100;
+  int iteration = 0;
+  while (!state.pendingDeclarations.empty()) {
+    CODEQL_ASSERT(iteration++ < upperBound,
+                  "Swift extractor reached upper bound while extracting lazy declarations");
+    extractLazy(state, compiler);
   }
 }
